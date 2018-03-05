@@ -1,0 +1,134 @@
+---
+# Install plex in FreeNAS jail
+# Prereqs: pkg install python ansible
+# Run with: ansible-playbook -i "localhost," -c local -e "ansible_python_interpreter=/usr/local/bin/python2.7" plex.yml
+- hosts:
+    localhost
+
+  tasks:
+    - name: Install packages for plex, plex dvr, etc
+      pkgng:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - plexmediaserver-plexpass
+        - wget
+        - rsync
+        - unzip
+        - autoconf
+        - automake
+        - libtool
+        - argtable
+        - nano
+        - ffmpeg
+        - bash
+        - gcc5
+        - git
+        - handbrake
+        - texinfo
+        - daemontools
+
+    - name: Install lame from ports for handbrake
+      portinstall:
+        name: audio/lame
+        state: present
+
+    - name: Download comskip
+      get_url:
+        url: https://github.com/erikkaashoek/Comskip/archive/master.zip
+        dest: /comskip.zip
+        mode: 0440
+
+    - name: Create comskip dir
+      file:
+        path: /comskip
+        state: directory
+        mode: 0755
+
+    - name: Unarchive comskip
+      unarchive:
+        src: /comskip.zip
+        dest: /comskip
+        remote_src: yes
+
+    - name: Copy comskip-master to comskip
+      synchronize:
+        src: /comskip/Comskip-master/
+        dest: /comskip/
+
+    - name: Fix argtable
+      replace:
+        path: /usr/local/libdata/pkgconfig/argtable2.pc
+        regexp: '^Version: 2$'
+        replace: 'Version: 2.13'
+        backup: yes
+
+    - name: Set pkg-config
+      command: pkg set -o devel/pkg-config:devel/pkgconfig
+
+    - name: Change pkg-config to pkgconf
+      pkgng:
+        name: devel/pkgconf
+
+    - name: Compile comskip
+      shell: CC=gcc5 ./autogen.sh && ./configure && make
+      args:
+        chdir: /comskip
+
+    - name: Get comchap
+      git:
+        repo: 'https://github.com/BrettSheleski/comchap'
+        dest: /comchap
+
+    - name: Configure daemontools for autorestart of plex
+      lineinfile:
+        path: /etc/rc.conf
+        line: 'svscan_enable="YES"'
+
+    - name: Create daemontools plex dir
+      file:
+        path: /var/service/plex/
+        state: directory
+        mode: 0755
+
+    - name: Clean service script
+      file:
+        path: /var/service/plex/run
+        state: absent
+
+    - name: Add plex service script for daemontools
+      blockinfile:
+        path: /var/service/plex/run
+        create: yes
+        mode: 755
+        marker: "BLOCK"
+        block: |
+          #!/usr/local/bin/bash
+
+          plexmediaserver_plexpass_support_path="/usr/local/plexdata-plexpass"
+          plexmediaserver_plexpass_user="plex"
+          plexmediaserver_plexpass_group="plex"
+          plexmediaserver_plexpass_maxplugins=6
+
+          export SUPPORT_PATH="${plexmediaserver_plexpass_support_path}"
+          export HOME="${plexmediaserver_plexpass_support_path}/Plex Media Server"
+          export PYTHONHOME="/usr/local/share/plexmediaserver-plexpass/Resources/Python"
+          export SCRIPTPATH="/usr/local/share/plexmediaserver-plexpass"
+          export LD_LIBRARY_PATH="/usr/local/lib/compat:${SCRIPTPATH}"
+          export PLEX_MEDIA_SERVER_HOME="${SCRIPTPATH}"
+          export PLEX_MEDIA_SERVER_MAX_PLUGIN_PROCS=${plexmediaserver_plexpass_maxplugins}
+          export PLEX_MEDIA_SERVER_APPLICATION_SUPPORT_DIR=${plexmediaserver_plexpass_support_path}
+          export PLEX_MEDIA_SERVER_PIDFILE=${pidfile}
+          export PLEX_MEDIA_SERVER_LOG_DIR="${plexmediaserver_plexpass_support_path}/Plex Media Server/Logs"
+          export PATH="${SCRIPTPATH}/Resources/Python/bin:${PATH}"
+          export LC_ALL="en_US.UTF-8"
+          export LANG="en_US.UTF-8"
+          ulimit -s 3000
+
+          /usr/local/share/plexmediaserver-plexpass/Plex_Media_Server
+
+    - name: Remove block from service script
+      lineinfile:
+        path: /var/service/plex/run
+        line: 'BLOCK'
+        state: absent
