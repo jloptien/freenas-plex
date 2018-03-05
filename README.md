@@ -4,7 +4,7 @@ Plex installer on freenas
 ## Plex in freenas jail
 Uses ansible to configure plex in a jail to make updating jails easier. Configures daemontools to monitor and restart plex service. 
 
-Configures and installs comskip and comchap for DvR features.
+Configures and installs comskip and comchap for DVR features.
 
 ## Prerequisites
 ```pkg install python ansible```
